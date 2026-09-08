@@ -39,3 +39,19 @@
 完整退出应用后，用新的 `physx.pack` 替换原文件，再重新启动。运行中替换不会自动重新加载。
 
 更新时保持文件名和存放路径不变，使用与所需区域对应的数据包。
+
+## 使用示例
+
+以下命令在设备终端执行，将下载目录中的数据包放到固定位置：
+
+```sh
+su
+mkdir -p /data/adb/physx
+cp /sdcard/Download/physx.pack /data/adb/physx/physx.pack
+chmod 644 /data/adb/physx/physx.pack
+ls -l /data/adb/physx/physx.pack
+```
+
+确认文件显示在 `/data/adb/physx/physx.pack` 后，完整退出并重新启动支持该格式的应用。应用启动时会自动加载数据包，之后即可使用碰撞与遮挡查询功能。
+
+更新数据包时，先退出应用，再用新的文件重复复制步骤并重新启动应用。
