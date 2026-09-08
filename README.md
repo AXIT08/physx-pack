@@ -1,5 +1,7 @@
 # physx.pack 碰撞数据包说明
 
+[下载 physx.pack](https://github.com/AXIT08/physx-pack/releases/download/cn/physx.pack)
+
 `physx.pack` 是用于碰撞与遮挡查询的外置二进制数据包，将模型碰撞形状、地形和角色命中区域集中保存在一个文件中。当前数据包适用于 CN/RMCN。
 
 ## 数据内容
