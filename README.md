@@ -1,129 +1,102 @@
-# physx.pack 碰撞数据包
+# physx.pack 可见性查询示例
 
 [下载 physx.pack](https://github.com/AXIT08/physx-pack/releases/download/cn/physx.pack)
 
-`physx.pack` 是用于碰撞与遮挡查询的外置二进制数据包，面向国服（CN/RMCN）场景。它包含模型碰撞几何、地形高度场、角色命中区域和资源索引。
+本仓库提供一个可直接编译的 C++17 示例工程，用于读取 `physx.pack` 并进行可见性判断。工程包含三部分：包解析、几何读取和可见性门面。
 
-## 数据内容
+`physx.pack` 是项目自定义的碰撞数据包，不是 ZIP，也不能直接传给通用 PhysX SDK。它包含模型碰撞几何、地形高度场、角色命中区域和资源索引。
 
-| 内容 | 用途 |
-| --- | --- |
-| 模型碰撞几何 | 三角形表面、凸体及其查询索引 |
-| 地形高度场 | 高度、洞口和表面材料 |
-| 角色命中区域 | 盒形、胶囊形等局部碰撞区域 |
-| 资源索引 | 将完整资源来源对应到几何条目 |
+## 快速编译
 
-包内数据只描述碰撞形状，不包含贴图、模型显示网格或其他渲染资源。
+需要 C++17、CMake、Ninja 或其他 CMake 生成器，以及 zlib。
 
-## 文件位置
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build
+```
 
-支持该格式的应用默认读取：
+生成的 `physx_visibility_example` 只依赖公开的可见性头文件。运行时可以传入 pack 路径；不传参数时使用：
 
 ```text
 /data/adb/physx/physx.pack
 ```
 
-文件名必须保持为 `physx.pack`，无需解压。应用启动时加载一次，运行中替换文件不会自动生效，更新后需要重新启动应用。
-
-## 源码接入
-
-仓库只提供数据包，不提供通用 PhysX SDK。其他 C++ 项目需要在自己的工程中接入三部分：
-
-1. **Pack parser**：打开文件，解析包头、字符串池、source/preload 索引、geometry slot 和数据块目录。
-2. **Geometry provider**：按 slot 读取 Mesh、Convex 或 HeightField 数据，并提供查询算法需要的索引、顶点、树节点或 Terrain cell。
-3. **Ray query**：使用当前实例的世界姿态、缩放和射线参数，对 provider 提供的几何执行相交查询。
-
-不要把文件直接传给 `PxPhysics` 或当作 ZIP；这是项目自定义的文件布局。资源身份应使用：
-
-```text
-origin + bundle_id + serialized_file + path_id
+```sh
+./build/physx_visibility_example /path/to/physx.pack
 ```
 
-不能用名称、单独 path_id、native 指针或数组下标猜测 geometry slot。
+## 可见性查询
 
-### C++ 最小调用示例
-
-以下示例使用 XC 当前的 parser/provider/query 接口，展示正确的生命周期和调用顺序：
+应用只需要包含 `include/physx_pack/visibility_query.h`：
 
 ```cpp
-#include "Read/ExternalCollisionPackage.h"
-#include "Read/ExternalGeometryProvider.h"
-#include "Read/ReadVisibilityQuery.h"
+#include "physx_pack/visibility_query.h"
 
-#include <cstdlib>
 #include <iostream>
 
-int main(int argc, char **argv)
+int main()
 {
-  const char *PackPath = argc > 1 ? argv[1] : nullptr;
-
-  xc::read_detail::ExternalCollisionPackage Package;
-  if (!(PackPath != nullptr ? Package.Open(PackPath) : Package.Open()))
+  physx_pack::VisibilityQuery Query;
+  if (!Query.Open("/path/to/physx.pack"))
   {
-    std::cerr << "cannot open physx.pack\n";
-    return EXIT_FAILURE;
+    return 1;
   }
 
-  // 示例值；生产代码必须先由来源索引解析真实 slot。
-  constexpr std::uint32_t GeometrySlot = 1234U;
-  xc::read_detail::ExternalGeometryProvider Provider;
-  xc::visibility::GeometryView Geometry{};
-  Geometry.WorldPose.Position = {0.0f, 0.0f, 0.0f};
-  Geometry.HeightField.HeightScale = 1.0f;
-  Geometry.HeightField.RowScale = 1.0f;
-  Geometry.HeightField.ColumnScale = 1.0f;
+  physx_pack::TargetInstance Target{};
+  Target.Id = {"cn", "example.bundle", "CAB-example", 1U};
 
-  if (!Provider.Bind(Package, GeometrySlot,
-                     xc::visibility::GeometryType::HeightField,
-                     &Geometry))
-  {
-    std::cerr << "geometry slot is unavailable\n";
-    return EXIT_FAILURE;
-  }
+  physx_pack::SceneSnapshot Scene{};
+  Scene.Instances.push_back(Target);
 
-  xc::visibility::Ray Ray{};
+  physx_pack::Ray Ray{};
   Ray.Origin = {0.0f, 100.0f, 0.0f};
   Ray.Direction = {0.0f, -1.0f, 0.0f};
   Ray.MaxDistance = 200.0f;
 
-  const xc::visibility::RayHit Hit =
-      xc::visibility::RaycastGeometry(Ray, Geometry);
-  switch (Hit.Status)
-  {
-  case xc::visibility::QueryStatus::Hit:
-    std::cout << "hit distance: " << Hit.Distance << "\n";
-    break;
-  case xc::visibility::QueryStatus::Miss:
-    std::cout << "miss\n";
-    break;
-  case xc::visibility::QueryStatus::Undefined:
-    std::cout << "undefined\n";
-    break;
-  }
-
-  // Provider 和 Package 必须活到所有查询完成。
-  return EXIT_SUCCESS;
+  const auto Result = Query.Check(Target, Scene, Ray);
+  std::cout << static_cast<int>(Result) << '\\n';
 }
 ```
 
-完整文件见 [examples/load_physx_pack.cpp](https://github.com/AXIT08/physx-pack/blob/main/examples/load_physx_pack.cpp)。
+`SceneSnapshot` 必须包含目标以及可能挡住目标的其他实例。每个实例需要完整资源身份、当前世界姿态、缩放和双面标志。目标自身的命中不会被算作阻挡；只有其他实例在目标之前命中时才返回 `Blocked`。
 
-### 接入要点
+结果含义：
 
-- `Open()` 失败时关闭文件并清空索引；失败不能当作没有碰撞。
-- `Bind()` 失败或查询返回 `Undefined` 时，表示几何无法判定，不应直接改写成“遮挡”。
-- 同一几何可被多条射线共享 descriptor，但每个实例必须单独应用世界姿态、缩放和双面标志。
-- HeightField 使用包内的 signed 16 位 sample；不要再次转置、量化或除以 `32766`。按 cell 读取四个角点，边缘 cell 使用实际尺寸。
-- 复杂几何按需读取和解压，不要在每条三角形访问时重新打开文件。
-- 数据块读取失败只影响依赖该块的查询；应用应保留“无法判定”状态。
-- Provider 回调应捕获异常、清零输出并返回失败，不能让异常穿过查询接口。
+- `Visible`：目标可达，未确认其他实例在前方阻挡。
+- `Blocked`：确认其他实例在目标之前命中。
+- `Unknown`：包、来源、几何块、姿态、射线或查询无法可靠确定。
 
-### 编译依赖
+`Unknown` 不应改写为 `Blocked`。查询对象和场景数据必须在调用期间保持有效；同一个查询对象可以连续检查多条射线。
 
-示例所用实现需要：
+## 读取链路
 
-- C++17；
-- 与接口匹配的 pack parser、geometry provider 和 ray query 实现；
-- zlib（用于压缩数据块）。
+公开源码的调用关系为：
 
-不同项目可以替换自己的场景过滤和结果结构，但必须保留 slot 身份映射、实例姿态独立性和 `Undefined` 失败语义。
+```text
+physx.pack
+  → PackReader：读取包头、来源索引和数据块
+  → GeometryReader：按来源读取 Mesh、Convex 或 HeightField
+  → RayQuery：执行几何相交
+  → VisibilityQuery：比较目标与阻挡实例的最近命中
+```
+
+包解析和几何读取接口位于 `include/physx_pack/`，实现位于 `src/`。它们只处理本地包和本地几何，不读取设备进程内存，不依赖 SQLite 或其他外部资源。
+
+复杂数据按需读取和解压。HeightField 使用包内 signed 16 位 sample 和按 cell 读取的四角数据；实例缩放和世界姿态由调用方在每次查询时提供。
+
+## 文件与生命周期
+
+包在打开时解析索引，运行中替换文件不会自动生效。更新文件后重新创建 `VisibilityQuery` 或重新启动使用它的应用。
+
+解析失败、范围越界、解压失败和几何数据损坏只会导致相关查询返回 `Unknown`。程序不执行 SHA-256、包版本或跨区域 fallback。
+
+## 源码结构
+
+- `include/physx_pack/visibility_query.h`：普通应用使用的最小接口。
+- `include/physx_pack/pack_reader.h`：包索引和数据块读取接口。
+- `include/physx_pack/geometry_reader.h`：Mesh、Convex、HeightField 读取接口。
+- `include/physx_pack/ray_query.h`：几何相交接口。
+- `src/`：对应实现。
+- `examples/visibility_query_main.cpp`：完整调用示例。
+
+这些接口只覆盖 `physx.pack` 可见性判断，不包含 ESP、Aim、驱动或其他业务逻辑。
