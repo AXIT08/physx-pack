@@ -1,4 +1,4 @@
-#include "physx_pack/ray_query.h"
+#include "detail/ray_query.h"
 
 #include <algorithm>
 #include <cmath>
@@ -204,275 +204,6 @@ bool InDistanceRange(float Distance, float Maximum) noexcept
 {
   return std::isfinite(Distance) && Distance >= 0.0f &&
          Distance <= Maximum;
-}
-
-RayHit RaycastSphereAt(const Ray &QueryRay, const Vec3 &Center,
-                       float Radius) noexcept
-{
-  if (!IsFinite(Center) || !std::isfinite(Radius) || Radius < 0.0f)
-  {
-    return UndefinedHit();
-  }
-
-  const Vec3 CenterToOrigin = Subtract(QueryRay.Origin, Center);
-  const float RadiusSquared = Radius * Radius;
-  const float OriginDistanceSquared = LengthSquared(CenterToOrigin);
-  if (!std::isfinite(RadiusSquared) ||
-      !std::isfinite(OriginDistanceSquared))
-  {
-    return UndefinedHit();
-  }
-  if (OriginDistanceSquared <= RadiusSquared)
-  {
-    return MakeHit(QueryRay, 0.0f,
-                   Multiply(QueryRay.Direction, -1.0f));
-  }
-
-  float Offset =
-      std::sqrt(OriginDistanceSquared) - Radius - KRaySurfaceOffset;
-  Offset = std::max(Offset, 0.0f);
-  if (Offset > QueryRay.MaxDistance)
-  {
-    return {};
-  }
-
-  const Vec3 ShiftedOrigin =
-      Add(QueryRay.Origin, Multiply(QueryRay.Direction, Offset));
-  const Vec3 ToCenter = Subtract(Center, ShiftedOrigin);
-  const float AlongRay = Dot(QueryRay.Direction, ToCenter);
-  const float ShiftedDistanceSquared = LengthSquared(ToCenter);
-  const float RemainingDistance = QueryRay.MaxDistance - Offset;
-  if (AlongRay <= 0.0f || AlongRay - RemainingDistance > Radius)
-  {
-    return {};
-  }
-
-  const float Discriminant =
-      RadiusSquared - (ShiftedDistanceSquared - AlongRay * AlongRay);
-  if (Discriminant < 0.0f)
-  {
-    return {};
-  }
-  const float Distance = Offset + AlongRay - std::sqrt(Discriminant);
-  if (!InDistanceRange(Distance, QueryRay.MaxDistance))
-  {
-    return {};
-  }
-
-  const Vec3 Position =
-      Add(QueryRay.Origin, Multiply(QueryRay.Direction, Distance));
-  Vec3 Normal{};
-  if (!Normalize(Subtract(Position, Center), &Normal))
-  {
-    Normal = Multiply(QueryRay.Direction, -1.0f);
-  }
-  return MakeHit(QueryRay, Distance, Normal);
-}
-
-RayHit RaycastSphere(const Ray &QueryRay, const GeometryView &Geometry) noexcept
-{
-  return RaycastSphereAt(QueryRay, Geometry.WorldPose.Position,
-                         Geometry.Sphere.Radius);
-}
-
-RayHit RaycastPlane(const Ray &QueryRay, const GeometryView &Geometry) noexcept
-{
-  Quat Rotation{};
-  Vec3 LocalNormal{};
-  if (!ResolvePoseRotation(Geometry.WorldPose, &Rotation) ||
-      !Normalize(Geometry.Plane.Normal, &LocalNormal) ||
-      !std::isfinite(Geometry.Plane.Distance))
-  {
-    return UndefinedHit();
-  }
-
-  const Vec3 Normal = Rotate(Rotation, LocalNormal);
-  const Vec3 LocalPoint = Multiply(LocalNormal, -Geometry.Plane.Distance);
-  const Vec3 WorldPoint =
-      Add(Geometry.WorldPose.Position, Rotate(Rotation, LocalPoint));
-  const float Denominator = Dot(QueryRay.Direction, Normal);
-  if (Denominator >= 0.0f)
-  {
-    return {};
-  }
-  if (std::fabs(Denominator) < KVisibilityPlaneEpsilon)
-  {
-    return {};
-  }
-
-  const float Distance =
-      Dot(Subtract(WorldPoint, QueryRay.Origin), Normal) / Denominator;
-  if (!InDistanceRange(Distance, QueryRay.MaxDistance))
-  {
-    return {};
-  }
-  return MakeHit(QueryRay, Distance, Normal);
-}
-
-float DistanceToSegmentSquared(const Vec3 &Point, const Vec3 &Start,
-                               const Vec3 &End) noexcept
-{
-  const Vec3 Segment = Subtract(End, Start);
-  const float SegmentSquared = LengthSquared(Segment);
-  if (!(SegmentSquared > 0.0f))
-  {
-    return LengthSquared(Subtract(Point, Start));
-  }
-  const float Factor = std::clamp(
-      Dot(Subtract(Point, Start), Segment) / SegmentSquared, 0.0f, 1.0f);
-  const Vec3 Closest = Add(Start, Multiply(Segment, Factor));
-  return LengthSquared(Subtract(Point, Closest));
-}
-
-void ConsiderDistance(float Candidate, float Maximum, float *Closest) noexcept
-{
-  if (InDistanceRange(Candidate, Maximum) && Candidate < *Closest)
-  {
-    *Closest = Candidate;
-  }
-}
-
-void ConsiderSphereCap(const Ray &QueryRay, const Vec3 &Center,
-                       const Vec3 &Axis, const Vec3 &SegmentStart,
-                       bool StartCap, float Radius, float *Closest) noexcept
-{
-  const Vec3 Relative = Subtract(QueryRay.Origin, Center);
-  const float B = Dot(Relative, QueryRay.Direction);
-  const float C = Dot(Relative, Relative) - Radius * Radius;
-  const float Discriminant = B * B - C;
-  if (Discriminant < 0.0f)
-  {
-    return;
-  }
-  const float Root = std::sqrt(Discriminant);
-  const std::array<float, 2> Distances = {-B - Root, -B + Root};
-  for (float Distance : Distances)
-  {
-    if (!InDistanceRange(Distance, QueryRay.MaxDistance))
-    {
-      continue;
-    }
-    const Vec3 Point = Add(QueryRay.Origin,
-                           Multiply(QueryRay.Direction, Distance));
-    const float Projection = Dot(Subtract(Point, SegmentStart), Axis);
-    if ((StartCap && Projection <= 0.0f) ||
-        (!StartCap && Projection >= 0.0f))
-    {
-      ConsiderDistance(Distance, QueryRay.MaxDistance, Closest);
-    }
-  }
-}
-
-RayHit RaycastCapsule(const Ray &QueryRay,
-                      const GeometryView &Geometry) noexcept
-{
-  Quat Rotation{};
-  const float Radius = Geometry.Capsule.Radius;
-  const float HalfHeight = Geometry.Capsule.HalfHeight;
-  if (!ResolvePoseRotation(Geometry.WorldPose, &Rotation) ||
-      !std::isfinite(Radius) || Radius < 0.0f ||
-      !std::isfinite(HalfHeight) || HalfHeight < 0.0f)
-  {
-    return UndefinedHit();
-  }
-
-  const Vec3 Axis = Rotate(Rotation, {1.0f, 0.0f, 0.0f});
-  const Vec3 Start = Add(Geometry.WorldPose.Position,
-                         Multiply(Axis, -HalfHeight));
-  const Vec3 End = Add(Geometry.WorldPose.Position,
-                       Multiply(Axis, HalfHeight));
-  if (HalfHeight <= 1.0e-6f)
-  {
-    return RaycastSphereAt(QueryRay, Geometry.WorldPose.Position, Radius);
-  }
-  if (DistanceToSegmentSquared(QueryRay.Origin, Start, End) <=
-      Radius * Radius)
-  {
-    return MakeHit(QueryRay, 0.0f,
-                   Multiply(QueryRay.Direction, -1.0f));
-  }
-
-  const Vec3 Segment = Subtract(End, Start);
-  const Vec3 OriginFromStart = Subtract(QueryRay.Origin, Start);
-  const float SegmentSquared = LengthSquared(Segment);
-  const float SegmentDirection = Dot(Segment, QueryRay.Direction);
-  const float SegmentOrigin = Dot(Segment, OriginFromStart);
-  const float RayOrigin = Dot(QueryRay.Direction, OriginFromStart);
-  const float OriginSquared = LengthSquared(OriginFromStart);
-  const float A = SegmentSquared - SegmentDirection * SegmentDirection;
-  const float B = SegmentSquared * RayOrigin -
-                  SegmentOrigin * SegmentDirection;
-  const float C = SegmentSquared * (OriginSquared - Radius * Radius) -
-                  SegmentOrigin * SegmentOrigin;
-  float Closest = std::numeric_limits<float>::infinity();
-  if (std::fabs(A) > KTriangleEpsilon)
-  {
-    const float Discriminant = B * B - A * C;
-    if (Discriminant >= 0.0f)
-    {
-      const float Root = std::sqrt(Discriminant);
-      const std::array<float, 2> Distances = {
-          (-B - Root) / A,
-          (-B + Root) / A,
-      };
-      for (float Distance : Distances)
-      {
-        const float Projection =
-            SegmentOrigin + Distance * SegmentDirection;
-        if (Projection >= 0.0f && Projection <= SegmentSquared)
-        {
-          ConsiderDistance(Distance, QueryRay.MaxDistance, &Closest);
-        }
-      }
-    }
-  }
-
-  ConsiderSphereCap(QueryRay, Start, Axis, Start, true, Radius, &Closest);
-  ConsiderSphereCap(QueryRay, End, Axis, End, false, Radius, &Closest);
-  if (!std::isfinite(Closest))
-  {
-    return {};
-  }
-
-  const Vec3 Position =
-      Add(QueryRay.Origin, Multiply(QueryRay.Direction, Closest));
-  const float SegmentFactor = std::clamp(
-      Dot(Subtract(Position, Start), Segment) / SegmentSquared, 0.0f, 1.0f);
-  const Vec3 SegmentPoint = Add(Start, Multiply(Segment, SegmentFactor));
-  Vec3 Normal{};
-  if (!Normalize(Subtract(Position, SegmentPoint), &Normal))
-  {
-    Normal = Multiply(QueryRay.Direction, -1.0f);
-  }
-  return MakeHit(QueryRay, Closest, Normal);
-}
-
-RayHit RaycastBox(const Ray &QueryRay, const GeometryView &Geometry) noexcept
-{
-  Quat Rotation{};
-  const Vec3 HalfExtents = Geometry.Box.HalfExtents;
-  if (!ResolvePoseRotation(Geometry.WorldPose, &Rotation) ||
-      !IsFinite(HalfExtents) || HalfExtents.X < 0.0f ||
-      HalfExtents.Y < 0.0f || HalfExtents.Z < 0.0f)
-  {
-    return UndefinedHit();
-  }
-
-  Ray LocalRay = QueryRay;
-  LocalRay.Origin = RotateInverse(
-      Rotation, Subtract(QueryRay.Origin, Geometry.WorldPose.Position));
-  LocalRay.Direction = RotateInverse(Rotation, QueryRay.Direction);
-  const Aabb Bounds{
-      {-HalfExtents.X, -HalfExtents.Y, -HalfExtents.Z},
-      {HalfExtents.X, HalfExtents.Y, HalfExtents.Z},
-  };
-  RayHit LocalHit = RaycastAabb(LocalRay, Bounds);
-  if (LocalHit.Status != QueryStatus::Hit)
-  {
-    return LocalHit;
-  }
-  return MakeHit(QueryRay, LocalHit.Distance,
-                 Rotate(Rotation, LocalHit.Normal));
 }
 
 bool IsIdentityScale(const MeshScale &Scale) noexcept
@@ -1409,10 +1140,12 @@ RayHit RaycastTriangleMesh(const Ray &QueryRay,
   }
   catch (const std::bad_alloc &)
   {
+    if (Control != nullptr) Control->Failure = Error::OutOfMemory;
     return UndefinedHit();
   }
   catch (const std::length_error &)
   {
+    if (Control != nullptr) Control->Failure = Error::OutOfMemory;
     return UndefinedHit();
   }
   return ConvertMeshHit(QueryRay, Geometry, LocalRay, LocalHit);
@@ -1879,78 +1612,6 @@ RayHit RaycastHeightField(const Ray &QueryRay,
                  Closest.FaceIndex);
 }
 
-bool ShapePassesFilter(const ShapeView &Shape,
-                       const QueryFilter &Filter) noexcept
-{
-  const std::uint32_t Layer = Shape.FilterWord0 & 0xFFU;
-  if (Layer >= 32U || ((Filter.LayerMask >> Layer) & 1U) == 0U)
-  {
-    return false;
-  }
-  return Filter.IncludeTriggers ||
-         (Shape.ShapeFlags & KVisibilityTriggerShapeFlag) == 0U;
-}
-
-void VisitPruner(const Ray &QueryRay, const PrunerView &Pruner, PrunerKind Kind,
-                 const QueryFilter &Filter, SceneHit *Closest, bool *Undefined,
-                 PHYSX_PACK_STAT(std::size_t *VisitOrdinal, )
-                     QueryControl *Control)
-{
-  if (Pruner.Shapes.Count != 0 && Pruner.Shapes.Data == nullptr)
-  {
-    *Undefined = true;
-    return;
-  }
-  for (std::size_t Index = 0; Index < Pruner.Shapes.Count; ++Index)
-  {
-    if (!ContinueQuery(Control))
-    {
-      *Undefined = true;
-      return;
-    }
-    const ShapeView &Shape = Pruner.Shapes.Data[Index];
-    if (!ShapePassesFilter(Shape, Filter))
-    {
-      continue;
-    }
-    Ray ClippedRay = QueryRay;
-    if (Closest->Status == QueryStatus::Hit)
-    {
-      ClippedRay.MaxDistance = Closest->Hit.Distance;
-    }
-    const RayHit BoundsHit = RaycastAabb(ClippedRay, Shape.WorldBounds);
-    if (BoundsHit.Status == QueryStatus::Undefined)
-    {
-      *Undefined = true;
-      continue;
-    }
-    if (BoundsHit.Status != QueryStatus::Hit)
-    {
-      continue;
-    }
-    PHYSX_PACK_STAT(++*VisitOrdinal;)
-    const RayHit Hit =
-        RaycastGeometry(ClippedRay, Shape.Geometry,
-                        Filter.HitBackfaces, Control);
-    if (Hit.Status == QueryStatus::Undefined)
-    {
-      *Undefined = true;
-      continue;
-    }
-    if (Hit.Status == QueryStatus::Hit &&
-        (Closest->Status != QueryStatus::Hit ||
-         Hit.Distance <= Closest->Hit.Distance))
-    {
-      Closest->Status = QueryStatus::Hit;
-      Closest->Hit = Hit;
-      Closest->Pruner = Kind;
-      Closest->ShapeIndex = Index;
-      Closest->Payload = Shape.Payload;
-      PHYSX_PACK_STAT(Closest->VisitOrdinal = *VisitOrdinal;)
-    }
-  }
-}
-
 } // namespace
 
 RayHit RaycastGeometry(const Ray &QueryRay,
@@ -1958,20 +1619,17 @@ RayHit RaycastGeometry(const Ray &QueryRay,
                        bool HitBackfaces,
                        QueryControl *Control)
 {
-  if (!IsDefinedRay(QueryRay) || !ContinueQuery(Control))
+  if (!IsDefinedRay(QueryRay))
+  {
+    if (Control != nullptr) Control->Failure = Error::InvalidArgument;
+    return UndefinedHit();
+  }
+  if (!ContinueQuery(Control))
   {
     return UndefinedHit();
   }
   switch (Geometry.Type)
   {
-  case GeometryType::Sphere:
-    return RaycastSphere(QueryRay, Geometry);
-  case GeometryType::Plane:
-    return RaycastPlane(QueryRay, Geometry);
-  case GeometryType::Capsule:
-    return RaycastCapsule(QueryRay, Geometry);
-  case GeometryType::Box:
-    return RaycastBox(QueryRay, Geometry);
   case GeometryType::ConvexMesh:
     return RaycastConvex(QueryRay, Geometry, Control);
   case GeometryType::TriangleMesh:
@@ -1979,128 +1637,8 @@ RayHit RaycastGeometry(const Ray &QueryRay,
   case GeometryType::HeightField:
     return RaycastHeightField(QueryRay, Geometry, HitBackfaces, Control);
   }
+  if (Control != nullptr) Control->Failure = Error::UnsupportedGeometry;
   return UndefinedHit();
-}
-
-SceneHit RaycastScene(const Ray &QueryRay, const SceneView &Scene,
-                      const QueryFilter &Filter,
-                      QueryControl *Control)
-{
-  SceneHit Closest{};
-  if (!IsDefinedRay(QueryRay) || !ContinueQuery(Control))
-  {
-    Closest.Status = QueryStatus::Undefined;
-    Closest.Hit = UndefinedHit();
-    return Closest;
-  }
-
-  bool Undefined = false;
-  PHYSX_PACK_STAT(std::size_t VisitOrdinal = 0;)
-  if ((Filter.QueryFlags & KVisibilityStaticQueryFlag) != 0U)
-  {
-    VisitPruner(QueryRay, Scene.Static, PrunerKind::Static, Filter, &Closest,
-                &Undefined, PHYSX_PACK_STAT(&VisitOrdinal, ) Control);
-  }
-  if ((Filter.QueryFlags & KVisibilityDynamicQueryFlag) != 0U)
-  {
-    VisitPruner(QueryRay, Scene.Dynamic, PrunerKind::Dynamic, Filter, &Closest,
-                &Undefined, PHYSX_PACK_STAT(&VisitOrdinal, ) Control);
-  }
-  VisitPruner(QueryRay, Scene.Compound, PrunerKind::Compound, Filter, &Closest,
-              &Undefined, PHYSX_PACK_STAT(&VisitOrdinal, ) Control);
-  if (Undefined)
-  {
-    Closest.Status = QueryStatus::Undefined;
-    Closest.Hit.Status = QueryStatus::Undefined;
-  }
-  return Closest;
-}
-
-QueryStatus RaycastCommandClosest(
-    const RaycastCommand &Command, const SceneView &Scene,
-    bool GlobalQueriesHitTriggers, std::size_t CommandIndex,
-    std::size_t MaxHits, ManagedRaycastHit *Results,
-    std::size_t ResultCount, QueryControl *Control)
-{
-  if (Results == nullptr || MaxHits == 0U ||
-      CommandIndex > std::numeric_limits<std::size_t>::max() / MaxHits)
-  {
-    return QueryStatus::Undefined;
-  }
-  const std::size_t First = CommandIndex * MaxHits;
-  if (First > ResultCount || MaxHits > ResultCount - First)
-  {
-    return QueryStatus::Undefined;
-  }
-  const Ray QueryRay{Command.Origin, Command.Direction, Command.Distance};
-  const bool TriggerValueDefined =
-      Command.Query.HitTriggers == QueryTriggerInteraction::UseGlobal ||
-      Command.Query.HitTriggers == QueryTriggerInteraction::Ignore ||
-      Command.Query.HitTriggers == QueryTriggerInteraction::Collide;
-  if (!IsDefinedRay(QueryRay))
-  {
-    for (std::size_t Index = 0; Index < MaxHits; ++Index)
-    {
-      Results[First + Index] = {};
-    }
-    return QueryStatus::Undefined;
-  }
-
-  if (!TriggerValueDefined || Command.Query.HitMultipleFaces != 0)
-  {
-    for (std::size_t Index = 0; Index < MaxHits; ++Index)
-    {
-      Results[First + Index] = {};
-    }
-    return QueryStatus::Undefined;
-  }
-
-  QueryFilter Filter{};
-  Filter.LayerMask = Command.Query.LayerMask;
-  Filter.IncludeTriggers =
-      Command.Query.HitTriggers == QueryTriggerInteraction::Collide ||
-      (Command.Query.HitTriggers == QueryTriggerInteraction::UseGlobal &&
-       GlobalQueriesHitTriggers);
-  Filter.HitBackfaces = Command.Query.HitBackfaces != 0;
-
-  const SceneHit Hit = RaycastScene(QueryRay, Scene, Filter, Control);
-  if (Hit.Status != QueryStatus::Hit)
-  {
-    Results[First] = {};
-    return Hit.Status;
-  }
-
-  ManagedRaycastHit Managed{};
-  Managed.Point = Hit.Hit.Position;
-  Managed.Normal = Hit.Hit.Normal;
-  Managed.FaceIndex = Hit.Hit.FaceIndex;
-  Managed.Distance = Hit.Hit.Distance;
-  Managed.ColliderInstanceId = static_cast<std::int32_t>(Hit.Payload);
-  Results[First] = Managed;
-  if (MaxHits > 1U)
-  {
-    Results[First + 1U] = {};
-  }
-  return QueryStatus::Hit;
-}
-
-int SelectExposedBoneSlot(
-    const std::array<ExposedBoneCandidate, KVisibilityBoneCount> &Candidates,
-    ExposedPriority Priority) noexcept
-{
-  const auto &Slots = Priority == ExposedPriority::Chest
-                          ? KExposedChestPriority
-                          : KExposedHeadPriority;
-  for (std::size_t Slot : Slots)
-  {
-    const ExposedBoneCandidate &Candidate = Candidates[Slot];
-    if (Candidate.Valid && Candidate.Visible && Candidate.InsideAimFov &&
-        IsFinite(Candidate.Position))
-    {
-      return static_cast<int>(Slot);
-    }
-  }
-  return -1;
 }
 
 } // namespace visibility

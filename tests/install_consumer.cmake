@@ -1,0 +1,22 @@
+set(prefix "${ROOT_BUILD}/install-consumer-prefix")
+set(build "${ROOT_BUILD}/install-consumer-build")
+execute_process(COMMAND "${CMAKE_COMMAND}" --install "${ROOT_BUILD}" --prefix "${prefix}"
+  --config "${TEST_CONFIG}" RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Library install failed: ${result}")
+endif()
+file(GLOB_RECURSE headers "${prefix}/include/*")
+list(LENGTH headers header_count)
+if(NOT header_count EQUAL 1 OR NOT headers MATCHES "physx_pack/visibility_query.h$")
+  message(FATAL_ERROR "Installation must expose exactly the public API header: ${headers}")
+endif()
+execute_process(COMMAND "${CMAKE_COMMAND}" -S "${ROOT_SOURCE}/tests/install_consumer" -B "${build}"
+  "-DCMAKE_PREFIX_PATH=${prefix}" "-DCMAKE_BUILD_TYPE=${TEST_CONFIG}"
+  "-DCMAKE_CXX_COMPILER=${TEST_COMPILER}" RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Installed consumer configure failed: ${result}")
+endif()
+execute_process(COMMAND "${CMAKE_COMMAND}" --build "${build}" --config "${TEST_CONFIG}" RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Installed consumer build failed: ${result}")
+endif()

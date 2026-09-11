@@ -1,0 +1,73 @@
+name: C++ API v2
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev clang
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_BUILD_TYPE=${{ matrix.configuration }} -DPHYSX_PACK_BUILD_BENCHMARKS=ON
+      - run: cmake --build build --parallel 2
+      - run: ctest --test-dir build --output-on-failure
+      - name: Deterministic benchmark
+        if: matrix.configuration == 'Release'
+        run: build/physx_query_benchmark
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, thread]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build zlib1g-dev clang
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DPHYSX_PACK_SANITIZER=${{ matrix.sanitizer }}
+      - run: cmake --build build --parallel 2
+      - name: Test ASan and UBSan
+        if: matrix.sanitizer == 'address'
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure --parallel 1
+      - name: Test TSan with stable shadow memory layout
+        if: matrix.sanitizer == 'thread'
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+        run: setarch "$(uname -m)" -R ctest --test-dir build --output-on-failure --parallel 1
+
+  android-arm64:
+    runs-on: ubuntu-24.04
+    env:
+      NDK_VERSION: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK r27c
+        run: sdkmanager "ndk;${NDK_VERSION}"
+      - name: Cross compile API 29
+        run: >-
+          cmake -S . -B build-android -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${ANDROID_HOME}/ndk/${NDK_VERSION}/build/cmake/android.toolchain.cmake
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - run: cmake --build build-android --parallel 2
+      - run: cmake --install build-android --prefix "$PWD/android-install"
+      - name: Compile installed consumer
+        run: >-
+          cmake -S tests/install_consumer -B consumer-android -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${ANDROID_HOME}/ndk/${NDK_VERSION}/build/cmake/android.toolchain.cmake
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static
+          -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PWD/android-install
+          -DCMAKE_FIND_ROOT_PATH=$PWD/android-install
+      - run: cmake --build consumer-android --parallel 2

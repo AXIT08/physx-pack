@@ -1,1 +1,4 @@
-*.pack
+/build*/
+/install*/
+/android-install/
+/consumer-android/

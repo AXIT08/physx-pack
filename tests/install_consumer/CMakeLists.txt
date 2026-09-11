@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(physx_pack_install_consumer LANGUAGES CXX)
+find_package(physx_pack 2 CONFIG REQUIRED)
+add_executable(consumer main.cpp)
+target_link_libraries(consumer PRIVATE physx_pack::physx_pack)
