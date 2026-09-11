@@ -97,4 +97,14 @@ const char *ToString(Error Value) noexcept
   }
   return "invalid_error";
 }
+const char *ToString(RaycastState Value) noexcept
+{
+  switch (Value)
+  {
+  case RaycastState::Miss: return "miss";
+  case RaycastState::Hit: return "hit";
+  case RaycastState::Unknown: return "unknown";
+  }
+  return "unknown";
+}
 } // namespace physx_pack

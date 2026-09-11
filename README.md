@@ -51,6 +51,23 @@ physx_pack::QueryRequest request{target.Id, {{0, 100, 0}, {0, -1, 0}, 200}};
 physx_pack::VisibilityResult result = worker.Check(snapshot, request);
 ```
 
+对 XC-SKJH Read 帧的相机到骨点遮挡，使用 `RaycastRequest`/`TraceBatch`。该接口不要求骨点终点有目标网格；适配器通过 `IgnoreInstance` 排除目标自身，返回 `RaycastState::Miss/Hit/Unknown`，并保留命中实例和世界距离。
+
+```cpp
+ReadFramePhysxAdapter adapter(package);
+ReadFrameInput frame{/*Sequence=*/42, /*PlanRevision=*/7, camera, bones, activeMask,
+                     targetKey, shapes.data(), shapes.size()};
+if (adapter.BeginFrame(frame) == physx_pack::Error::None &&
+    adapter.EndFrame() == physx_pack::Error::None) {
+  const auto visibility = adapter.Resolve();
+  // visibility.Bones[i].State: Visible / Blocked / Unknown
+}
+```
+
+XC-SKJH Read 帧的可编译适配示例位于 `examples/xc_read_frame_adapter`，完整字段映射和真实帧调用顺序见 [`docs/xc-skjh-read-integration.md`](../docs/xc-skjh-read-integration.md)。示例只依赖公开头文件，不 include XC-SKJH 私有类型；接入方应从当前帧快照提供 `ReadFrameInput.Camera`，并将已完成 layer/trigger 过滤的 static、dynamic、compound 形状转换为 `ReadFrameShape`。
+
+`QueryContext::Check`/`CheckBatch` 用于带目标实例的可见性查询；Read 帧适配器使用 `TraceBatch` 做纯场景粗遮挡。两者都不会把零命中或 `Unknown` 改写成 `Visible`。owner、detail、ScreenBox、HitBox 和最终 Aim 选点继续由 XC-SKJH 业务层处理。
+
 示例四元组是占位符，必须替换为实际包内身份。`ResourceKey` 的 Origin、BundleId、SerializedFile、PathId 必须全部匹配；Origin 不是区域名，例如 CN 包使用 `AlwaysNeed`、`PrimaryPack`，恢复的内置资源使用 `apk`。有符号 Unity PathID 使用其 uint64 位表示。
 
 `InstanceId` 是非零且场景内唯一的实例标识。同一资源可以被多个实例复用；查询只排除目标自身的 InstanceId，其余副本仍可阻挡。目标姿态与几何变体只取自当前快照，不再另传一份目标对象。

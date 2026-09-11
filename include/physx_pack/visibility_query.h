@@ -16,6 +16,12 @@ enum class VisibilityState
   Blocked,
   Unknown
 };
+enum class RaycastState
+{
+  Miss,
+  Hit,
+  Unknown
+};
 enum class Error
 {
   None,
@@ -74,6 +80,20 @@ struct QueryRequest
 {
   InstanceId Target = 0;
   Ray QueryRay{};
+};
+struct RaycastRequest
+{
+  Ray QueryRay{};
+  // Optional instance excluded from the scene trace (typically the target
+  // entity itself in a camera-to-bone visibility query).
+  InstanceId IgnoreInstance = 0;
+};
+struct RaycastResult
+{
+  RaycastState State = RaycastState::Unknown;
+  Error Reason = Error::NotOpen;
+  float Distance = std::numeric_limits<float>::infinity();
+  InstanceId HitInstance = 0;
 };
 struct VisibilityResult
 {
@@ -174,6 +194,8 @@ public:
   VisibilityResult Check(const SceneSnapshot &Snapshot, const QueryRequest &Request) noexcept;
   Error CheckBatch(const SceneSnapshot &Snapshot, const QueryRequest *Requests, std::size_t Count,
                    VisibilityResult *Results) noexcept;
+  Error TraceBatch(const SceneSnapshot &Snapshot, const RaycastRequest *Requests,
+                   std::size_t Count, RaycastResult *Results) noexcept;
   QueryStats GetStats() const noexcept;
 
 private:
@@ -182,5 +204,6 @@ private:
 };
 const char *ToString(Error Value) noexcept;
 const char *ToString(VisibilityState Value) noexcept;
+const char *ToString(RaycastState Value) noexcept;
 } // namespace physx_pack
 #endif

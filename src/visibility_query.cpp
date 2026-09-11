@@ -266,6 +266,116 @@ Error QueryContext::CheckBatch(const SceneSnapshot &Snapshot, const QueryRequest
     Results[i] = Check(Snapshot, Requests[i]);
   return Error::None;
 }
+
+namespace
+{
+template <typename ImplType>
+RaycastResult TraceSceneRay(ImplType &Impl, const detail::SceneData *Scene,
+                            const RaycastRequest &Request)
+{
+  RaycastResult Result;
+  if (!Scene)
+    return Result;
+  visibility::Ray RayValue{};
+  if (!NormalizeRay(Request.QueryRay, RayValue))
+  {
+    Result.Reason = Error::InvalidArgument;
+    return Result;
+  }
+  Error Unknown = Error::None;
+  InstanceId UnknownInstance = 0;
+  float Best = Request.QueryRay.MaxDistance;
+  auto Visit = [&](std::uint32_t Index)
+  {
+    const auto &Instance = Scene->Instances[Index];
+    if (Request.IgnoreInstance && Instance.Desc.Id == Request.IgnoreInstance)
+      return;
+    if (Instance.WorldBoundsDefined && !Impl.Intersects(RayValue, Instance.WorldBounds, Best))
+      return;
+    const auto Hit = Impl.Trace(*Scene->Package, Instance, RayValue);
+    if (Hit.Failure != Error::None)
+    {
+      if (Unknown == Error::None || Instance.Desc.Id < UnknownInstance)
+      {
+        Unknown = Hit.Failure;
+        UnknownInstance = Instance.Desc.Id;
+      }
+      return;
+    }
+    if (Hit.Hit.Status == visibility::QueryStatus::Hit && Hit.Hit.Distance <= Best)
+    {
+      if (Result.State != RaycastState::Hit || Hit.Hit.Distance < Result.Distance ||
+          (Hit.Hit.Distance == Result.Distance && Instance.Desc.Id < Result.HitInstance))
+      {
+        Result.State = RaycastState::Hit;
+        Result.Reason = Error::None;
+        Result.Distance = Hit.Hit.Distance;
+        Result.HitInstance = Instance.Desc.Id;
+        Best = Hit.Hit.Distance;
+      }
+    }
+  };
+  Impl.Stack.clear();
+  if (!Scene->Nodes.empty())
+    Impl.Stack.push_back(0);
+  while (!Impl.Stack.empty())
+  {
+    const auto Index = Impl.Stack.back();
+    Impl.Stack.pop_back();
+    const auto &Node = Scene->Nodes[Index];
+    if (!Impl.Intersects(RayValue, Node.Bounds, Best))
+      continue;
+    if (Node.Count)
+      for (std::uint32_t I = 0; I < Node.Count; ++I)
+        Visit(Scene->Order[Node.Begin + I]);
+    else
+    {
+      Impl.Stack.push_back(Node.Right);
+      Impl.Stack.push_back(Node.Left);
+    }
+  }
+  for (const auto Index : Scene->Unbounded)
+    Visit(Index);
+  if (Result.State == RaycastState::Hit)
+    return Result;
+  if (Unknown != Error::None)
+  {
+    Result.State = RaycastState::Unknown;
+    Result.Reason = Unknown;
+    Result.HitInstance = UnknownInstance;
+    return Result;
+  }
+  Result.State = RaycastState::Miss;
+  Result.Reason = Error::None;
+  return Result;
+}
+} // namespace
+
+Error QueryContext::TraceBatch(const SceneSnapshot &Snapshot, const RaycastRequest *Requests,
+                               std::size_t Count, RaycastResult *Results) noexcept
+{
+  if (Count && (!Requests || !Results))
+    return Error::InvalidArgument;
+  try
+  {
+    for (std::size_t I = 0; I < Count; ++I)
+    {
+      ++Impl_->Stats.Queries;
+      Results[I] = TraceSceneRay(*Impl_, Snapshot.Data_.get(), Requests[I]);
+    }
+    return Error::None;
+  }
+  catch (const std::bad_alloc &)
+  {
+    Impl_->Lease.Reset();
+    return Error::OutOfMemory;
+  }
+  catch (...)
+  {
+    Impl_->Lease.Reset();
+    return Error::CorruptData;
+  }
+}
 QueryStats QueryContext::GetStats() const noexcept
 {
   return Impl_->Stats;
