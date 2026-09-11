@@ -1,0 +1,88 @@
+{
+  "schema": "physx-pack-artifact-v1",
+  "channel": "cn",
+  "api_version": 2,
+  "library_version": "2.0.0",
+  "code_commit": "cb09cd2adfd4f7c03e6765aa19f2310d5b01ba7b",
+  "created_at": "2026-09-11T00:46:46.445401+00:00",
+  "pack_format": "XCPHYSX v1",
+  "artifact": {
+    "name": "physx.pack",
+    "bytes": 290507249,
+    "sha256": "04f86b264c2c63f14859e8a002668b7301f218ba55dbf8b6cec54cbbf6520f50",
+    "path": "models/cn/physx.pack"
+  },
+  "data_version": {
+    "client": "260909.131907.1050110.1.133.8.1864",
+    "resources": "res.20260908.232532.publish_cn.official.android.3194.509361.f50bf3cc.132"
+  },
+  "coverage_status": "partial",
+  "runtime_world_verified": false,
+  "derived_runtime_equivalence_verified": false,
+  "coverage": {
+    "source_geometries": 36436,
+    "queryable_geometries": 10876,
+    "triangle_cooked": 10050,
+    "convex_cooked": 600,
+    "unity_heightfield": 259,
+    "original_baked_payloads": 10523,
+    "recooked_payloads": 127,
+    "preload_entries": 2566538,
+    "preload_nongeometry": 2408812,
+    "preload_unresolved": 3
+  },
+  "remaining_gaps": {
+    "failed_convex_meshes": 1,
+    "invalid_mesh_path_ids": 2,
+    "missing_external_cab_files": 1,
+    "affected_static_mesh_colliders": 6
+  },
+  "validation": {
+    "gcc_debug": "passed",
+    "gcc_release": "passed",
+    "clang_debug": "passed",
+    "clang_release": "passed",
+    "address_undefined_sanitizers": "passed",
+    "thread_sanitizer": "passed",
+    "installed_consumer": "passed",
+    "android": {
+      "ndk": "27.2.12479018",
+      "abi": "arm64-v8a",
+      "api": 29,
+      "library_cli_installed_consumer": "passed"
+    },
+    "public_test_suites": 5,
+    "model_query_cases": 723,
+    "model_query_failures": 0,
+    "cooking_comparison_queries": 5120,
+    "cooking_comparison_mismatches": 0,
+    "v1_v2_direction_normalization_edge_case_changes": 2,
+    "v1_with_matching_direction_normalization_mismatches": 0,
+    "encoded_geometry_mismatches": 0,
+    "preload_mapping_mismatches": 0,
+    "old_pack_open": "passed",
+    "old_pack_geometry_queries": 9,
+    "old_pack_geometry_query_failures": 0
+  },
+  "synthetic_benchmark": {
+    "seed": 20260911,
+    "instances": 5000,
+    "rays_per_batch": 512,
+    "rounds": 80,
+    "v1_batch_p95_ms": 1017.686,
+    "v2_batch_p95_ms": 0.634,
+    "v1_in_place_update_p95_ms": 0.003,
+    "v2_snapshot_update_p95_ms": 0.345,
+    "v2_warm_bytes_decoded": 184,
+    "note": "Same synthetic geometry and results; v2 updates additionally create immutable snapshots. Not a general game-performance guarantee."
+  },
+  "compatibility": {
+    "recompile_callers": true,
+    "migration": "https://github.com/AXIT08/physx-pack/blob/cb09cd2adfd4f7c03e6765aa19f2310d5b01ba7b/MIGRATION.md",
+    "supported_platforms": [
+      "Linux",
+      "Android arm64 API 29+"
+    ]
+  },
+  "storage": "git-lfs"
+}

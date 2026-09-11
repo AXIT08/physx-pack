@@ -2,7 +2,9 @@
 
 C++17 只读碰撞包与批量可见性查询库。API v2 面向 Linux/WSL 和 Android arm64（API 29+）。
 
-[下载 CN physx.pack](https://github.com/AXIT08/physx-pack/releases/download/cn/physx.pack) · [SHA-256](https://github.com/AXIT08/physx-pack/releases/download/cn/physx.pack.sha256) · [发布清单](https://github.com/AXIT08/physx-pack/releases/download/cn/release-manifest.json)
+[下载 CN physx.pack](https://media.githubusercontent.com/media/AXIT08/physx-pack/main/models/cn/physx.pack) · [SHA-256](models/cn/physx.pack.sha256) · [成品清单](models/cn/manifest.json)
+
+成品位于 `models/cn/`，模型包使用 Git LFS 存储。克隆后执行 `git lfs pull`，或者直接使用上方成品下载链接。未启用 LFS 的源码下载可能只包含指针文件。
 
 **API v2 与旧调用方式不兼容，库和调用方必须一起重新编译。** 当前 CN 包有 2,566,538 条 preload，旧读取库的 1,048,576 条上限无法打开。迁移说明见 [MIGRATION.md](MIGRATION.md)。包仍使用 XCPHYSX v1，不是 ZIP 或通用 PhysX SDK 序列化文件。
 
@@ -93,4 +95,4 @@ worker.CheckBatch(snapshot, requests, 2, results);
 
 127份载荷由原始 Mesh 使用官方 PhysX 4.1.2 重新烘焙；它们在20个基线上解码结果一致，但不代表所有运行时行为已经证明一致。仍有1个凸包触发面数限制、2个失效目标PathID、1个缺失CAB；另外有未被当前静态MeshCollider引用的Mesh没有baked数据。数据覆盖状态为 **partial**，运行时世界未验证。
 
-89,486条静态MeshCollider记录中89,406条所需几何可用、74条原本没有Mesh，另外6条受上述几何或引用缺口影响。验证通过表示编码、索引或指定测试通过，不等于资源覆盖完整。模型包和脱敏验证摘要通过Release附件分发。
+89,486条静态MeshCollider记录中89,406条所需几何可用、74条原本没有Mesh，另外6条受上述几何或引用缺口影响。验证通过表示编码、索引或指定测试通过，不等于资源覆盖完整。模型包和脱敏验证摘要均位于仓库的 `models/cn/`。
